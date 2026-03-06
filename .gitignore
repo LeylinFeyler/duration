@@ -1,0 +1,5 @@
+duration
+
+*.o
+*.a
+*.so
