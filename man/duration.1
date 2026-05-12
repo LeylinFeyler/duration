@@ -1,0 +1,60 @@
+.TH DURATION 1 "2026-05-12" "duration" "User Commands"
+
+.SH NAME
+duration \- calculate total duration of video or audio files
+
+.SH SYNOPSIS
+.B duration
+[\fIoptions\fR] <files|directories>
+
+.SH DESCRIPTION
+duration is a command-line tool that calculates total duration of media files.
+
+It supports video and audio formats and scans directories recursively.
+
+Unlike older versions, it uses ffmpeg libraries directly (libavformat), not external ffprobe processes.
+
+.SH OPTIONS
+.TP
+.B -v
+calculate video duration (default mode)
+
+.TP
+.B -a
+calculate audio duration
+
+.TP
+.B --all
+scan directories recursively
+
+.TP
+.B -l
+list duration of each file in addition to total
+
+.TP
+.B -h, --help
+show help message
+
+.SH EXAMPLES
+.TP
+duration
+scan current directory (video mode)
+
+.TP
+duration --all videos/
+recursively scan video files
+
+.TP
+duration -a music/
+scan audio files in folder
+
+.TP
+duration -l --all videos/
+list each file duration + total
+
+.SH NOTES
+This tool uses ffmpeg libraries (libavformat, libavutil).
+No external ffprobe process is used.
+
+.SH AUTHOR
+geronimo
