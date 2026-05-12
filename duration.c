@@ -8,14 +8,17 @@
 #include <ctype.h>
 #include <time.h>
 #include "utils/spinner.h"
+#include <libavformat/avformat.h>
+#include <libavutil/log.h>
 
 #define MAX_FILES 1000
-#define MAX_PATH 1024
+#define MAX_PATH 4096
 
-// define supported video and audio extensions
+// supported extensions for filtering files
 const char* video_ext[] = {".mp4", ".mkv", ".avi", ".mov", ".webm"};
 const char* audio_ext[] = {".mp3", ".flac", ".wav", ".ogg", ".aac", ".m4a"};
 
+// simple container for file paths
 typedef struct {
     char* paths[MAX_FILES];
     int count;
@@ -33,51 +36,58 @@ int has_extension(const char* filename, const char** extensions, int ext_count) 
     return 0;
 }
 
+// stores file path in list
 void add_file(FileList* list, const char* path) {
     if(list->count >= MAX_FILES) return;
     list->paths[list->count++] = strdup(path);
 }
 
-// recursively scan directory for files with given extensions
+// recursively scans directory tree
 void scan_dir(const char* dir_path, int recursive, const char** extensions, int ext_count, FileList* list) {
     DIR* dir = opendir(dir_path);
     if(!dir) return;
 
     struct dirent* entry;
     while((entry = readdir(dir)) != NULL) {
-        if(strcmp(entry->d_name,".")==0 || strcmp(entry->d_name,"..")==0) continue;
+        if(strcmp(entry->d_name,".")==0 || strcmp(entry->d_name,"..")==0)
+            continue;
 
         char fullpath[MAX_PATH];
         snprintf(fullpath, MAX_PATH, "%s/%s", dir_path, entry->d_name);
 
-        struct stat st;
-        if(stat(fullpath, &st)!=0) continue;
-
-        if(S_ISREG(st.st_mode)) {
+        if(entry->d_type == DT_REG) {
             if(has_extension(entry->d_name, extensions, ext_count))
                 add_file(list, fullpath);
-        } else if(S_ISDIR(st.st_mode) && recursive) {
+        }
+        else if(entry->d_type == DT_DIR && recursive) {
             scan_dir(fullpath, recursive, extensions, ext_count, list);
         }
     }
     closedir(dir);
 }
 
-// get duration of media file using ffprobe
+// reads media duration using ffmpeg library
 double get_duration(const char* path) {
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-        "ffprobe -v error -show_entries format=duration"
-        "-of default=noprint_wrappers=1:nokey=1 \"%s\""
-        "2>/dev/null",  // redirect stderr (fd=2) to /dev/null to hide ffprobe warnings/errors (temporarily, so as not to annoy the eyes)
-        path);
+    AVFormatContext* fmt_ctx = NULL;
 
-    FILE* fp = popen(cmd, "r");
-    if(!fp) return 0.0;
+    // open file container
+    if(avformat_open_input(&fmt_ctx, path, NULL, NULL) < 0)
+        return 0.0;
+
+    // read metadata and stream info
+    if(avformat_find_stream_info(fmt_ctx, NULL) < 0) {
+        avformat_close_input(&fmt_ctx);
+        return 0.0;
+    }
 
     double duration = 0.0;
-    fscanf(fp, "%lf", &duration);
-    pclose(fp);
+
+    // duration is stored in AV_TIME_BASE units
+    if(fmt_ctx->duration != AV_NOPTS_VALUE)
+        duration = (double)fmt_ctx->duration / AV_TIME_BASE;
+
+    avformat_close_input(&fmt_ctx);
+
     return duration;
 }
 
@@ -91,13 +101,14 @@ void print_duration(double seconds) {
     else printf("%ds", s);
 }
 
-// case-insensitive string comparison for sorting paths
+// compares two file paths for sorting
 int cmp_paths(const void* a, const void* b) {
     const char* s1 = *(const char**)a;
     const char* s2 = *(const char**)b;
     return strcasecmp(s1,s2);
 }
 
+// prints CLI help message
 void print_help(const char* prog) {
     printf("╔══════════════════════════════════════════════╗\n");
     printf("║            duration  —  media timer          ║\n");
@@ -107,19 +118,22 @@ void print_help(const char* prog) {
     printf("Options:\n");
     printf("  -v            Calculate video duration (default)\n");
     printf("  -a            Calculate audio duration\n");
-    printf("  -all          Include all files recursively from given folders\n");
+    printf("  --all          Include all files recursively from given folders\n");
     printf("                (may take longer depending on file count)\n");
     printf("  -l            List duration of each file (in addition to total)\n");
     printf("  -h, --help    Show this help message\n\n");
     printf("Examples:\n");
     printf("  %s                       → video duration in current folder\n", prog);
     printf("  %s movie.mp4 folder/     → video duration from file + folder (non-recursive)\n", prog);
-    printf("  %s -all folder/          → scan all subfolders too (recursive)\n", prog);
+    printf("  %s --all folder/          → scan all subfolders too (recursive)\n", prog);
     printf("  %s -a music/             → audio duration in folder\n", prog);
-    printf("  %s -a -all ~/Music       → audio duration in all subfolders\n\n", prog);
+    printf("  %s -a --all ~/Music       → audio duration in all subfolders\n\n", prog);
 }
 
 int main(int argc, char* argv[]) {
+    // disable ffmpeg logs
+    av_log_set_level(AV_LOG_QUIET);
+
     // parse arguments and set mode flags
     int mode_video = 1;
     int recursive = 0;
@@ -135,7 +149,7 @@ int main(int argc, char* argv[]) {
     for(int i=1;i<argc;i++) {
         if(strcmp(argv[i],"-v")==0) mode_video=1;
         else if(strcmp(argv[i],"-a")==0) mode_video=0;
-        else if(strcmp(argv[i],"-all")==0) recursive=1;
+        else if(strcmp(argv[i],"--all")==0) recursive=1;
         else if(strcmp(argv[i],"-l")==0) list_durations=1;
         else if(strcmp(argv[i],"-h")==0 || strcmp(argv[i],"--help")==0) {
             print_help(argv[0]);
@@ -180,8 +194,9 @@ int main(int argc, char* argv[]) {
             static char cwd[1024];
             static size_t cwd_len = 0;
             if(cwd_len == 0) {
-                getcwd(cwd, sizeof(cwd));
-                cwd_len = strlen(cwd);
+                if(getcwd(cwd, sizeof(cwd)) != NULL) {
+                    cwd_len = strlen(cwd);
+                }
             }
 
             const char* full_path = files.paths[i];
