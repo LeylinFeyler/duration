@@ -5,38 +5,50 @@
 #include <string.h>
 #include "spinner.h"
 
+// spinner animation characters
 char spinner_seq[] = {'|','/','-','\\'};
 
-// ===== spinner functions =====
+// runs in separate thread and prints spinner frame
 void* spinner_thread(void* arg) {
     Spinner* sp = (Spinner*)arg;
     int i = 0;
+
+    // loop while spinner is active
     while(sp->running) {
         printf("\r%s %c", sp->message, spinner_seq[i++ % 4]);
         fflush(stdout);
-        struct timespec ts = {0, 100000000}; // 0.1s sleep
+
+        // small delay between frames
+        struct timespec ts = {0, 100000000}; // 100ms
         nanosleep(&ts, NULL);
     }
+
     return NULL;
 }
 
-// start spinner animation
+// start spinner thread
 void spinner_start(Spinner* sp, const char* message) {
     sp->running = 1;
     sp->message = message;
-    pthread_t tid;
-    pthread_create(&tid, NULL, spinner_thread, sp);
-    pthread_detach(tid);
+
+    pthread_create(&sp->thread, NULL, spinner_thread, sp);
 }
 
-// stop spinner animation and optionally print a done message
+// stop spinner thread and wait for it to finish
 void spinner_stop(Spinner* sp, const char* doneMessage) {
     sp->running = 0;
-    sleep(200000); // small delay to let spinner finish
+
+    pthread_join(sp->thread, NULL);
+
+    // print final message or clear line
     if(doneMessage && strlen(doneMessage) > 0) {
-        printf("\r%s%*s\n", doneMessage, 80 - (int)strlen(doneMessage), "");
+        printf("\r%s%*s\n",
+            doneMessage,
+            80 - (int)strlen(doneMessage),
+            "");
     } else {
         printf("\r%*s\r", 80, "");
     }
+
     fflush(stdout);
 }
