@@ -140,89 +140,102 @@ int main(int argc, char* argv[]) {
     int list_durations = 0;
     FileList files = {.count = 0};
 
-    // if no arguments, scan current directory for videos
-    if(argc==1) {
-        scan_dir(".",0,video_ext,5,&files);
+    // no arguments: scan current directory for videos
+    if(argc == 1) {
+        scan_dir(".", 0, video_ext, 5, &files);
     }
 
-    // handle arguments
-    for(int i=1;i<argc;i++) {
-        if(strcmp(argv[i],"-v")==0) mode_video=1;
-        else if(strcmp(argv[i],"-a")==0) mode_video=0;
-        else if(strcmp(argv[i],"--all")==0) recursive=1;
-        else if(strcmp(argv[i],"-l")==0) list_durations=1;
-        else if(strcmp(argv[i],"-h")==0 || strcmp(argv[i],"--help")==0) {
+    // PASS 1: read all flags first, handle --help early
+    for(int i = 1; i < argc; i++) {
+        if(strcmp(argv[i], "-v") == 0)          mode_video = 1;
+        else if(strcmp(argv[i], "-a") == 0)     mode_video = 0;
+        else if(strcmp(argv[i], "--all") == 0)  recursive = 1;
+        else if(strcmp(argv[i], "-l") == 0)     list_durations = 1;
+        else if(strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_help(argv[0]);
             return 0;
-        } else {
+        }
+    }
+
+    // PASS 2: now that flags are set, process paths
+    if(argc > 1) {
+        int found_path = 0;
+        for(int i = 1; i < argc; i++) {
+            // skip flags
+            if(strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "-a") == 0 ||
+               strcmp(argv[i], "--all") == 0 || strcmp(argv[i], "-l") == 0 ||
+               strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
+                continue;
+
+            found_path = 1;
             struct stat st;
-            if(stat(argv[i], &st)==0) {
-                if(S_ISREG(st.st_mode)) add_file(&files, argv[i]);
-                else if(S_ISDIR(st.st_mode)) 
-                    scan_dir(argv[i], recursive, mode_video?video_ext:audio_ext, mode_video?5:6, &files);
+            if(stat(argv[i], &st) == 0) {
+                if(S_ISREG(st.st_mode))
+                    add_file(&files, argv[i]);
+                else if(S_ISDIR(st.st_mode))
+                    scan_dir(argv[i], recursive,
+                             mode_video ? video_ext : audio_ext,
+                             mode_video ? 5 : 6, &files);
             } else {
                 printf("Warning: '%s' not found.\n", argv[i]);
             }
         }
+
+        // flags were given but no explicit paths — scan cwd
+        if(!found_path) {
+            scan_dir(".", recursive,
+                     mode_video ? video_ext : audio_ext,
+                     mode_video ? 5 : 6, &files);
+        }
     }
 
-    // if no files found after arguments, scan cwd again
     if(files.count == 0) {
-        scan_dir(".", recursive, mode_video ? video_ext : audio_ext, mode_video ? 5 : 6, &files);
+        printf("No %s files found.\n", mode_video ? "video" : "audio");
+        return 0;
     }
 
     qsort(files.paths, files.count, sizeof(char*), cmp_paths);
 
-    if(files.count==0) {
-        printf("No %s files found.\n", mode_video?"video":"audio");
-        return 0;
-    }
+    // cache cwd once for relative path display
+    char cwd[MAX_PATH];
+    size_t cwd_len = 0;
+    if(getcwd(cwd, sizeof(cwd)) != NULL)
+        cwd_len = strlen(cwd);
 
     // start spinner while calculating durations
     Spinner spinner;
-    spinner_start(&spinner, list_durations?"Calculating total duration":"Processing files");
+    spinner_start(&spinner, list_durations ? "Calculating total duration" : "Processing files");
 
     double total_duration = 0.0;
-    for(int i=0;i<files.count;i++) {
+    for(int i = 0; i < files.count; i++) {
         double dur = get_duration(files.paths[i]);
         total_duration += dur;
 
         if(list_durations) {
-            spinner_stop(&spinner,"");
-
-            // get relative path from current directory
-            static char cwd[1024];
-            static size_t cwd_len = 0;
-            if(cwd_len == 0) {
-                if(getcwd(cwd, sizeof(cwd)) != NULL) {
-                    cwd_len = strlen(cwd);
-                }
-            }
+            spinner_stop(&spinner, "");
 
             const char* full_path = files.paths[i];
             const char* rel_path = full_path;
+            char rel_buf[MAX_PATH]; // buffer lives in outer scope — no UB
 
-            if(strncmp(full_path, cwd, cwd_len) == 0) {
-                rel_path = full_path + cwd_len;
-                if(*rel_path == '/' || *rel_path == '\\') rel_path++;
-                char tmp[1024];
-                snprintf(tmp, sizeof(tmp), "/%s", rel_path);
-                rel_path = tmp;
+            if(cwd_len > 0 && strncmp(full_path, cwd, cwd_len) == 0) {
+                snprintf(rel_buf, sizeof(rel_buf), "./%s", full_path + cwd_len + 1);
+                rel_path = rel_buf;
             }
 
             printf("%s — ", rel_path);
             print_duration(dur);
             printf("\n");
 
-            spinner_start(&spinner,"Calculating total duration");
+            spinner_start(&spinner, "Calculating total duration");
         }
     }
 
-    spinner_stop(&spinner,"Finished!");
-    printf("Total %s duration: ", mode_video?"video":"audio");
+    spinner_stop(&spinner, "Finished!");
+    printf("Total %s duration: ", mode_video ? "video" : "audio");
     print_duration(total_duration);
     printf("\n");
 
-    for(int i=0;i<files.count;i++) free(files.paths[i]);
+    for(int i = 0; i < files.count; i++) free(files.paths[i]);
     return 0;
 }
