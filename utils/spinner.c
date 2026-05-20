@@ -1,20 +1,20 @@
-#include <stdio.h>
+#include "spinner.h"
 #include <pthread.h>
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <string.h>
-#include "spinner.h"
 
 // spinner animation characters
-char spinner_seq[] = {'|','/','-','\\'};
+char spinner_seq[] = {'|', '/', '-', '\\'};
 
 // runs in separate thread and prints spinner frame
-void* spinner_thread(void* arg) {
-    Spinner* sp = (Spinner*)arg;
-    int i = 0;
+void *spinner_thread(void *arg) {
+    Spinner *sp = (Spinner *)arg;
+    int i       = 0;
 
     // loop while spinner is active
-    while(sp->running) {
+    while (sp->running) {
         printf("\r%s %c", sp->message, spinner_seq[i++ % 4]);
         fflush(stdout);
 
@@ -27,7 +27,7 @@ void* spinner_thread(void* arg) {
 }
 
 // start spinner thread
-void spinner_start(Spinner* sp, const char* message) {
+void spinner_start(Spinner *sp, const char *message) {
     sp->running = 1;
     sp->message = message;
 
@@ -35,17 +35,14 @@ void spinner_start(Spinner* sp, const char* message) {
 }
 
 // stop spinner thread and wait for it to finish
-void spinner_stop(Spinner* sp, const char* doneMessage) {
+void spinner_stop(Spinner *sp, const char *doneMessage) {
     sp->running = 0;
 
     pthread_join(sp->thread, NULL);
 
     // print final message or clear line
-    if(doneMessage && strlen(doneMessage) > 0) {
-        printf("\r%s%*s\n",
-            doneMessage,
-            80 - (int)strlen(doneMessage),
-            "");
+    if (doneMessage && strlen(doneMessage) > 0) {
+        printf("\r%s%*s\n", doneMessage, 80 - (int)strlen(doneMessage), "");
     } else {
         printf("\r%*s\r", 80, "");
     }

@@ -5,11 +5,11 @@
 
 typedef struct {
     volatile int running;
-    const char* message;
+    const char *message;
     pthread_t thread;
 } Spinner;
 
-void spinner_start(Spinner* sp, const char* message);
-void spinner_stop(Spinner* sp, const char* doneMessage);
+void spinner_start(Spinner *sp, const char *message);
+void spinner_stop(Spinner *sp, const char *doneMessage);
 
 #endif
